@@ -3,7 +3,7 @@
 ══════════════════════════════════════════════════════
   OTP PANEL BOT — HACKER & ANTI-CRASH EDITION         
   ULTRA-SPEED PROGRESSIVE SCANNER & APP-SPECIFIC SEARCH
-  (GOD-TIER STABILITY + AUTO-CLEANUP + PRIVACY)
+  (1-HOUR FREE TRIAL + REFERRAL LOCK + PRIVACY)
 ══════════════════════════════════════════════════════
 """
 
@@ -743,7 +743,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     bot_token = ctx.bot.token
     
     if chat_id not in all_users:
-        all_users[chat_id] = {"name": update.effective_user.first_name, "username": update.effective_user.username, "joined_at": datetime.now().strftime("%d %b %Y"), "referrals": 0, "access_until": 0, "has_global_access": False, "otp_count": 0, "custom_dbs": [], "selected_panel": "ALL"}
+        # 🔥 NEW: 1 Hour VIP Access (3600 seconds) for new users
+        all_users[chat_id] = {"name": update.effective_user.first_name, "username": update.effective_user.username, "joined_at": datetime.now().strftime("%d %b %Y"), "referrals": 0, "access_until": time.time() + 3600, "has_global_access": False, "otp_count": 0, "custom_dbs": [], "selected_panel": "ALL"}
         text = update.message.text.split()
         if len(text) > 1 and text[1].isdigit():
             ref_id = int(text[1])
@@ -753,6 +754,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 try: await ctx.bot.send_message(ref_id, f"🎉 New user joined via your link! Total Referrals: {all_users[ref_id]['referrals']}/10")
                 except: pass
         save_user(chat_id)
+        try:
+            await ctx.bot.send_message(chat_id, "🎉 <b>WELCOME BONUS!</b>\nAapko 1 Ghante ka FREE VIP Access mila hai!\n\n<i>1 ghante baad premium panels continue rakhne ke liye aapko 10 referrals karne honge ya apna khud ka Firebase add karna hoga.</i>", parse_mode="HTML")
+        except: pass
 
     if update.effective_chat.type == "private" and not await check_force_sub(ctx.bot, chat_id):
         await update.message.reply_text("🛑 <b>Aage badhne ke liye in channels ko join karna compulsory hai!</b>", parse_mode="HTML", reply_markup=force_sub_keyboard())
@@ -1144,6 +1148,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not text: return
 
+    # 🔥 STRICT REFERRAL LOCK & 1 HOUR FREE TRIAL CHECK
     protected_commands = ["Devices List", "Manual Checker", "Auto-Check Panels", "Scan Hidden Devices", "🔥 30-Min Fresh Devices", "🍔 App OTPs (24h)"]
     if text in protected_commands:
         is_global = chat_id in ADMIN_IDS or all_users.get(chat_id, {}).get("has_global_access", False)
@@ -1158,7 +1163,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     await update.message.reply_text("✅ <b>10 Referrals Redeemed!</b>\nYou now have 24 hours of full access to your panels.", parse_mode="HTML")
                 else:
                     ref_link = f"https://t.me/{ctx.bot.username}?start={chat_id}"
-                    await update.message.reply_text(f"🛑 <b>LOCKED FEATURE</b> 🛑\n\nAapko apni panel list dekhne ke liye <b>10 referrals</b> chahiye (24 hrs access).\n\n📉 Your Referrals: {refs}/10\n🔗 Your Link:\n<code>{ref_link}</code>\n\nShare this link to get access!", parse_mode="HTML")
+                    await update.message.reply_text(f"🛑 <b>VIP TRIAL EXPIRED</b> 🛑\n\nAapka 1 ghante ka free trial khatam ho gaya hai.\nAb premium panels dekhne ke liye <b>10 referrals</b> chahiye (24 hrs access) YA 'Add Panel' pe click karke apna Firebase add karein.\n\n📉 Your Referrals: {refs}/10\n🔗 Your Link:\n<code>{ref_link}</code>\n\nShare this link to get access!", parse_mode="HTML")
                     return
 
     if text == "Search Number (God)":
